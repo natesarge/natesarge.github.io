@@ -12,13 +12,13 @@ on:
 # in your repo under Settings → Secrets and variables → Actions:
 #
 #   INVENTOR_FIRST   Your first name as it appears on patents
-#                    Example: nathan
+#                    Example: tony
 #
 #   INVENTOR_LAST    Your last name as it appears on patents
-#                    Example: sargent
+#                    Example: stark
 #
 #   INVENTOR_CITIES  Comma-separated list of cities on your patents
-#                    Example: oceanside,san marcos,vista
+#                    Example: malibu,kunar,new york city
 # ──────────────────────────────────────────────────────────────
 
 jobs:
