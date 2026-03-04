@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Patents — Nathan Sargent</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <header class="site-header">
+    <div class="container">
+      <a href="index.html" class="back-link">&larr; Home</a>
+      <h1 class="site-title">Patents</h1>
+      <p class="site-subtitle" id="patentPageSubtitle">Loading…</p>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <div class="patent-controls">
+      <input
+        type="search"
+        id="patentSearch"
+        class="patent-search-input"
+        placeholder="Search patents by title or number…"
+        aria-label="Search patents"
+      />
+      <span class="patent-count-badge" id="visibleCount"></span>
+    </div>
+
+    <ul class="patent-list" id="patentList" aria-live="polite">
+      <li class="patent-placeholder">Loading patents…</li>
+    </ul>
+
+    <p class="no-results hidden" id="noResults">No patents match your search.</p>
+
+    <p class="patent-source">
+      Data sourced from the
+      <a href="https://patentsview.org" target="_blank" rel="noopener">USPTO PatentsView</a>
+      database. Updated monthly.
+    </p>
+
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>&copy; <span id="footerYear"></span> Nathan Sargent</p>
+    </div>
+  </footer>
+
+  <script src="js/main.js"></script>
+</body>
+</html>

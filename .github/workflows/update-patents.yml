@@ -1,0 +1,119 @@
+name: Update Patent Data
+
+# Run on the 1st of every month at 06:00 UTC
+# Also allows manual trigger from the GitHub Actions UI
+on:
+  schedule:
+    - cron: '0 6 1 * *'
+  workflow_dispatch:
+
+jobs:
+  fetch-patents:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to commit the updated patents.json
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch patents from PatentsView API
+        id: fetch
+        run: |
+          # ── Query PatentsView API ────────────────────────────────────
+          # Inventor: Nathan Sargent
+          # Cities:   Oceanside, San Marcos, Vista (CA)
+          # Fields:   patent number, title, grant date, inventors
+          # Sort:     newest first
+          # Max:      500 results (well above ~200 expected)
+
+          QUERY=$(cat <<'EOF'
+          {
+            "q": {
+              "_and": [
+                {"inventor_last_name": "sargent"},
+                {"inventor_first_name": "nathan"},
+                {
+                  "_or": [
+                    {"inventor_city": "oceanside"},
+                    {"inventor_city": "san marcos"},
+                    {"inventor_city": "vista"}
+                  ]
+                }
+              ]
+            },
+            "f": ["patent_number", "patent_title", "patent_date", "inventors.inventor_first_name", "inventors.inventor_last_name", "inventors.inventor_city"],
+            "s": [{"patent_date": "desc"}],
+            "o": {"per_page": 500}
+          }
+          EOF
+          )
+
+          RESPONSE=$(curl -s -X POST \
+            "https://search.patentsview.org/api/v1/patent/" \
+            -H "Content-Type: application/json" \
+            -d "$QUERY")
+
+          echo "API response preview:"
+          echo "$RESPONSE" | head -c 500
+
+          # ── Transform API response into site format ──────────────────
+          python3 - <<'PYEOF'
+          import json, sys, datetime, os
+
+          with open('/dev/stdin') as f:
+              pass  # stdin consumed above; re-read from env var
+
+          response_text = os.environ.get('API_RESPONSE', '')
+          PYEOF
+
+          # Pass the response via env variable to avoid shell escaping issues
+          API_RESPONSE="$RESPONSE" python3 - <<'PYEOF'
+          import json, sys, datetime, os
+
+          raw = os.environ['API_RESPONSE']
+
+          try:
+              data = json.loads(raw)
+          except json.JSONDecodeError as e:
+              print(f"JSON parse error: {e}", file=sys.stderr)
+              sys.exit(1)
+
+          patents_raw = data.get('patents', [])
+          if patents_raw is None:
+              patents_raw = []
+
+          patents = []
+          for p in patents_raw:
+              patents.append({
+                  "number": p.get("patent_number", ""),
+                  "title":  p.get("patent_title", ""),
+                  "date":   p.get("patent_date", "")
+              })
+
+          output = {
+              "last_updated": datetime.date.today().isoformat(),
+              "query_note": "inventor: Nathan Sargent, cities: Oceanside, San Marcos, Vista (CA)",
+              "patents": patents
+          }
+
+          with open("data/patents.json", "w") as f:
+              json.dump(output, f, indent=2)
+
+          print(f"Wrote {len(patents)} patents to data/patents.json")
+          PYEOF
+
+      - name: Commit updated patents.json
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/patents.json
+
+          # Only commit if something actually changed
+          if git diff --cached --quiet; then
+            echo "No changes to patent data — skipping commit."
+          else
+            COUNT=$(python3 -c "import json; d=json.load(open('data/patents.json')); print(len(d['patents']))")
+            git commit -m "chore: update patent data (${COUNT} patents) [$(date -u '+%Y-%m-%d')]"
+            git push origin HEAD
+          fi
