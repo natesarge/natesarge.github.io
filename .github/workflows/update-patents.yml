@@ -11,17 +11,20 @@ on:
 # SETUP: Before this workflow will run, add these four secrets
 # in your repo under Settings → Secrets and variables → Actions:
 #
-#   INVENTOR_FIRST       Your first name as it appears on patents
-#                        Example: tony
+#   INVENTOR_FIRST   Your first name as it appears on patents
+#                    Example: tony
 #
-#   INVENTOR_LAST        Your last name as it appears on patents
-#                        Example: stark
+#   INVENTOR_LAST    Your last name as it appears on patents
+#                    Example: stark
 #
-#   INVENTOR_CITIES      Comma-separated list of cities on your patents
-#                        Example: malibu,kunar,new york city
+#   INVENTOR_CITIES  Comma-separated list of cities on your patents
+#                    Example: malibu,kunar,new york city
 #
-#   PATENTSVIEW_API_KEY  Free API key from PatentsView
-#                        Request one at: https://patentsview.org/contact-us
+#   LENS_API_TOKEN   Free API token from Lens.org
+#                    Register at: https://www.lens.org/lens/user/subscriptions
+#
+# NOTE: When PatentsView (patentsview.org) resumes issuing API keys,
+# this workflow can be switched back to use their API instead.
 # ──────────────────────────────────────────────────────────────
 
 jobs:
@@ -34,64 +37,68 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Fetch patents from PatentsView API
+      - name: Fetch patents from Lens.org API
         env:
-          INVENTOR_FIRST:      ${{ secrets.INVENTOR_FIRST }}
-          INVENTOR_LAST:       ${{ secrets.INVENTOR_LAST }}
-          INVENTOR_CITIES:     ${{ secrets.INVENTOR_CITIES }}
-          PATENTSVIEW_API_KEY: ${{ secrets.PATENTSVIEW_API_KEY }}
+          INVENTOR_FIRST:  ${{ secrets.INVENTOR_FIRST }}
+          INVENTOR_LAST:   ${{ secrets.INVENTOR_LAST }}
+          INVENTOR_CITIES: ${{ secrets.INVENTOR_CITIES }}
+          LENS_API_TOKEN:  ${{ secrets.LENS_API_TOKEN }}
         run: |
           python3 - <<'PYEOF'
           import json, sys, datetime, os, urllib.request, urllib.error
 
           # ── Read secrets from environment ────────────────────────────
-          first   = os.environ.get('INVENTOR_FIRST', '').strip().lower()
-          last    = os.environ.get('INVENTOR_LAST', '').strip().lower()
-          cities  = [c.strip().lower() for c in os.environ.get('INVENTOR_CITIES', '').split(',') if c.strip()]
-          api_key = os.environ.get('PATENTSVIEW_API_KEY', '').strip()
+          first  = os.environ.get('INVENTOR_FIRST', '').strip().lower()
+          last   = os.environ.get('INVENTOR_LAST', '').strip().lower()
+          cities = [c.strip().lower() for c in os.environ.get('INVENTOR_CITIES', '').split(',') if c.strip()]
+          token  = os.environ.get('LENS_API_TOKEN', '').strip()
 
           if not first or not last or not cities:
               print("ERROR: INVENTOR_FIRST, INVENTOR_LAST, and INVENTOR_CITIES secrets must all be set.", file=sys.stderr)
               sys.exit(1)
-          if not api_key:
-              print("ERROR: PATENTSVIEW_API_KEY secret must be set. Request a free key at https://patentsview.org/contact-us", file=sys.stderr)
+          if not token:
+              print("ERROR: LENS_API_TOKEN secret must be set. Register at https://www.lens.org/lens/user/subscriptions", file=sys.stderr)
               sys.exit(1)
 
           print(f"Querying for inventor '{first} {last}' in cities: {cities}")
 
-          # ── Build PatentsView API query ───────────────────────────────
-          # Field names for the current PatentsView search API (v1, post-May 2025)
-          city_filters = [{"inventors.inventor_lastknown_city": city} for city in cities]
+          # ── Build Lens.org API query ──────────────────────────────────
+          # Uses Elasticsearch bool query syntax:
+          #   must  = AND  (all conditions required)
+          #   should + minimum_should_match = OR  (at least one city required)
+          city_clauses = [{"match": {"inventor.address": city}} for city in cities]
 
           query = {
-              "q": {
-                  "_and": [
-                      {"inventors.inventor_name_last": last},
-                      {"inventors.inventor_name_first": first},
-                      {"_or": city_filters}
-                  ]
+              "query": {
+                  "bool": {
+                      "must": [
+                          {"match": {"inventor.name": last}},
+                          {"match": {"inventor.name": first}},
+                          {"term":  {"jurisdiction": "US"}},
+                          {
+                              "bool": {
+                                  "should": city_clauses,
+                                  "minimum_should_match": 1
+                              }
+                          }
+                      ]
+                  }
               },
-              "f": [
-                  "patent_id",
-                  "patent_title",
-                  "patent_date",
-                  "inventors.inventor_name_first",
-                  "inventors.inventor_name_last",
-                  "inventors.inventor_lastknown_city"
-              ],
-              "s": [{"patent_date": "desc"}],
-              "o": {"per_page": 500}
+              "include": ["doc_number", "title", "date_published", "legal_status"],
+              "size": 500,
+              "from": 0,
+              "sort": [{"date_published": "desc"}]
           }
 
           payload = json.dumps(query).encode()
 
           # ── Call the API ──────────────────────────────────────────────
           req = urllib.request.Request(
-              "https://search.patentsview.org/api/v1/patent/",
+              "https://api.lens.org/patent/search",
               data=payload,
               headers={
                   "Content-Type": "application/json",
-                  "X-Api-Key": api_key
+                  "Authorization": f"Bearer {token}"
               },
               method="POST"
           )
@@ -115,13 +122,14 @@ jobs:
               print(f"JSON parse error: {e}", file=sys.stderr)
               sys.exit(1)
 
-          patents_raw = data.get('patents') or []
+          patents_raw = data.get('data') or []
 
           patents = [
               {
-                  "number": p.get("patent_id", ""),
-                  "title":  p.get("patent_title", ""),
-                  "date":   p.get("patent_date", "")
+                  "number": p.get("doc_number", ""),
+                  "title":  p.get("title", ""),
+                  # Prefer grant date; fall back to publication date
+                  "date":   (p.get("legal_status") or {}).get("grant_date") or p.get("date_published", "")
               }
               for p in patents_raw
           ]
