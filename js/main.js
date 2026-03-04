@@ -9,6 +9,21 @@ const isPatentsPage = document.getElementById('patentList') !== null;
 const fyEl = document.getElementById('footerYear');
 if (fyEl) fyEl.textContent = new Date().getFullYear();
 
+// ── Apply display name to title, heading, footer ─────────────
+function applyDisplayName(name) {
+  if (!name) return;
+  const siteNameEl  = document.getElementById('siteName');
+  const footerNameEl = document.getElementById('footerName');
+  if (siteNameEl)   siteNameEl.textContent  = name;
+  if (footerNameEl) footerNameEl.textContent = name;
+  // Update <title> tag
+  if (isPatentsPage) {
+    document.title = `Patents — ${name}`;
+  } else {
+    document.title = name;
+  }
+}
+
 // ── Animated count-up ────────────────────────────────────────
 function animateCount(el, target, duration = 1200) {
   const start = performance.now();
@@ -57,6 +72,7 @@ async function initWidget() {
 
   try {
     const data = await loadPatents();
+    applyDisplayName(data.display_name);
     const total = data.patents ? data.patents.length : 0;
 
     animateCount(countEl, total);
@@ -144,6 +160,7 @@ async function initPatentsPage() {
 
   try {
     const data = await loadPatents();
+    applyDisplayName(data.display_name);
     allPatents = data.patents || [];
 
     if (subtitleEl) {

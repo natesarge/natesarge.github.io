@@ -114,8 +114,11 @@ jobs:
               for p in patents_raw
           ]
 
+          display_name = f"{first.capitalize()} {last.capitalize()}"
+
           output = {
               "last_updated": datetime.date.today().isoformat(),
+              "display_name": display_name,
               "patents": patents
           }
 
