@@ -8,17 +8,20 @@ on:
   workflow_dispatch:
 
 # ──────────────────────────────────────────────────────────────
-# SETUP: Before this workflow will run, add these three secrets
+# SETUP: Before this workflow will run, add these four secrets
 # in your repo under Settings → Secrets and variables → Actions:
 #
-#   INVENTOR_FIRST   Your first name as it appears on patents
-#                    Example: tony
+#   INVENTOR_FIRST       Your first name as it appears on patents
+#                        Example: tony
 #
-#   INVENTOR_LAST    Your last name as it appears on patents
-#                    Example: stark
+#   INVENTOR_LAST        Your last name as it appears on patents
+#                        Example: stark
 #
-#   INVENTOR_CITIES  Comma-separated list of cities on your patents
-#                    Example: malibu,kunar,new york city
+#   INVENTOR_CITIES      Comma-separated list of cities on your patents
+#                        Example: malibu,kunar,new york city
+#
+#   PATENTSVIEW_API_KEY  Free API key from PatentsView
+#                        Request one at: https://patentsview.org/contact-us
 # ──────────────────────────────────────────────────────────────
 
 jobs:
@@ -33,42 +36,48 @@ jobs:
 
       - name: Fetch patents from PatentsView API
         env:
-          INVENTOR_FIRST:  ${{ secrets.INVENTOR_FIRST }}
-          INVENTOR_LAST:   ${{ secrets.INVENTOR_LAST }}
-          INVENTOR_CITIES: ${{ secrets.INVENTOR_CITIES }}
+          INVENTOR_FIRST:      ${{ secrets.INVENTOR_FIRST }}
+          INVENTOR_LAST:       ${{ secrets.INVENTOR_LAST }}
+          INVENTOR_CITIES:     ${{ secrets.INVENTOR_CITIES }}
+          PATENTSVIEW_API_KEY: ${{ secrets.PATENTSVIEW_API_KEY }}
         run: |
           python3 - <<'PYEOF'
           import json, sys, datetime, os, urllib.request, urllib.error
 
           # ── Read secrets from environment ────────────────────────────
-          first  = os.environ.get('INVENTOR_FIRST', '').strip().lower()
-          last   = os.environ.get('INVENTOR_LAST', '').strip().lower()
-          cities = [c.strip().lower() for c in os.environ.get('INVENTOR_CITIES', '').split(',') if c.strip()]
+          first   = os.environ.get('INVENTOR_FIRST', '').strip().lower()
+          last    = os.environ.get('INVENTOR_LAST', '').strip().lower()
+          cities  = [c.strip().lower() for c in os.environ.get('INVENTOR_CITIES', '').split(',') if c.strip()]
+          api_key = os.environ.get('PATENTSVIEW_API_KEY', '').strip()
 
           if not first or not last or not cities:
               print("ERROR: INVENTOR_FIRST, INVENTOR_LAST, and INVENTOR_CITIES secrets must all be set.", file=sys.stderr)
+              sys.exit(1)
+          if not api_key:
+              print("ERROR: PATENTSVIEW_API_KEY secret must be set. Request a free key at https://patentsview.org/contact-us", file=sys.stderr)
               sys.exit(1)
 
           print(f"Querying for inventor '{first} {last}' in cities: {cities}")
 
           # ── Build PatentsView API query ───────────────────────────────
-          city_filters = [{"inventor_city": city} for city in cities]
+          # Field names for the current PatentsView search API (v1, post-May 2025)
+          city_filters = [{"inventors.inventor_lastknown_city": city} for city in cities]
 
           query = {
               "q": {
                   "_and": [
-                      {"inventor_last_name": last},
-                      {"inventor_first_name": first},
+                      {"inventors.inventor_name_last": last},
+                      {"inventors.inventor_name_first": first},
                       {"_or": city_filters}
                   ]
               },
               "f": [
-                  "patent_number",
+                  "patent_id",
                   "patent_title",
                   "patent_date",
-                  "inventors.inventor_first_name",
-                  "inventors.inventor_last_name",
-                  "inventors.inventor_city"
+                  "inventors.inventor_name_first",
+                  "inventors.inventor_name_last",
+                  "inventors.inventor_lastknown_city"
               ],
               "s": [{"patent_date": "desc"}],
               "o": {"per_page": 500}
@@ -80,7 +89,10 @@ jobs:
           req = urllib.request.Request(
               "https://search.patentsview.org/api/v1/patent/",
               data=payload,
-              headers={"Content-Type": "application/json"},
+              headers={
+                  "Content-Type": "application/json",
+                  "X-Api-Key": api_key
+              },
               method="POST"
           )
 
@@ -107,7 +119,7 @@ jobs:
 
           patents = [
               {
-                  "number": p.get("patent_number", ""),
+                  "number": p.get("patent_id", ""),
                   "title":  p.get("patent_title", ""),
                   "date":   p.get("patent_date", "")
               }
