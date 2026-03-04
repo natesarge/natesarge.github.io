@@ -7,6 +7,20 @@ on:
     - cron: '0 6 1 * *'
   workflow_dispatch:
 
+# ──────────────────────────────────────────────────────────────
+# SETUP: Before this workflow will run, add these three secrets
+# in your repo under Settings → Secrets and variables → Actions:
+#
+#   INVENTOR_FIRST   Your first name as it appears on patents
+#                    Example: nathan
+#
+#   INVENTOR_LAST    Your last name as it appears on patents
+#                    Example: sargent
+#
+#   INVENTOR_CITIES  Comma-separated list of cities on your patents
+#                    Example: oceanside,san marcos,vista
+# ──────────────────────────────────────────────────────────────
+
 jobs:
   fetch-patents:
     runs-on: ubuntu-latest
@@ -18,82 +32,90 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Fetch patents from PatentsView API
-        id: fetch
+        env:
+          INVENTOR_FIRST:  ${{ secrets.INVENTOR_FIRST }}
+          INVENTOR_LAST:   ${{ secrets.INVENTOR_LAST }}
+          INVENTOR_CITIES: ${{ secrets.INVENTOR_CITIES }}
         run: |
-          # ── Query PatentsView API ────────────────────────────────────
-          # Inventor: Nathan Sargent
-          # Cities:   Oceanside, San Marcos, Vista (CA)
-          # Fields:   patent number, title, grant date, inventors
-          # Sort:     newest first
-          # Max:      500 results (well above ~200 expected)
+          python3 - <<'PYEOF'
+          import json, sys, datetime, os, urllib.request, urllib.error
 
-          QUERY=$(cat <<'EOF'
-          {
-            "q": {
-              "_and": [
-                {"inventor_last_name": "sargent"},
-                {"inventor_first_name": "nathan"},
-                {
-                  "_or": [
-                    {"inventor_city": "oceanside"},
-                    {"inventor_city": "san marcos"},
-                    {"inventor_city": "vista"}
+          # ── Read secrets from environment ────────────────────────────
+          first  = os.environ.get('INVENTOR_FIRST', '').strip().lower()
+          last   = os.environ.get('INVENTOR_LAST', '').strip().lower()
+          cities = [c.strip().lower() for c in os.environ.get('INVENTOR_CITIES', '').split(',') if c.strip()]
+
+          if not first or not last or not cities:
+              print("ERROR: INVENTOR_FIRST, INVENTOR_LAST, and INVENTOR_CITIES secrets must all be set.", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"Querying for inventor '{first} {last}' in cities: {cities}")
+
+          # ── Build PatentsView API query ───────────────────────────────
+          city_filters = [{"inventor_city": city} for city in cities]
+
+          query = {
+              "q": {
+                  "_and": [
+                      {"inventor_last_name": last},
+                      {"inventor_first_name": first},
+                      {"_or": city_filters}
                   ]
-                }
-              ]
-            },
-            "f": ["patent_number", "patent_title", "patent_date", "inventors.inventor_first_name", "inventors.inventor_last_name", "inventors.inventor_city"],
-            "s": [{"patent_date": "desc"}],
-            "o": {"per_page": 500}
+              },
+              "f": [
+                  "patent_number",
+                  "patent_title",
+                  "patent_date",
+                  "inventors.inventor_first_name",
+                  "inventors.inventor_last_name",
+                  "inventors.inventor_city"
+              ],
+              "s": [{"patent_date": "desc"}],
+              "o": {"per_page": 500}
           }
-          EOF
+
+          payload = json.dumps(query).encode()
+
+          # ── Call the API ──────────────────────────────────────────────
+          req = urllib.request.Request(
+              "https://search.patentsview.org/api/v1/patent/",
+              data=payload,
+              headers={"Content-Type": "application/json"},
+              method="POST"
           )
 
-          RESPONSE=$(curl -s -X POST \
-            "https://search.patentsview.org/api/v1/patent/" \
-            -H "Content-Type: application/json" \
-            -d "$QUERY")
+          try:
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  raw = resp.read().decode()
+          except urllib.error.HTTPError as e:
+              print(f"HTTP error {e.code}: {e.read().decode()}", file=sys.stderr)
+              sys.exit(1)
+          except urllib.error.URLError as e:
+              print(f"Network error: {e.reason}", file=sys.stderr)
+              sys.exit(1)
 
-          echo "API response preview:"
-          echo "$RESPONSE" | head -c 500
+          print(f"API response preview: {raw[:300]}")
 
-          # ── Transform API response into site format ──────────────────
-          python3 - <<'PYEOF'
-          import json, sys, datetime, os
-
-          with open('/dev/stdin') as f:
-              pass  # stdin consumed above; re-read from env var
-
-          response_text = os.environ.get('API_RESPONSE', '')
-          PYEOF
-
-          # Pass the response via env variable to avoid shell escaping issues
-          API_RESPONSE="$RESPONSE" python3 - <<'PYEOF'
-          import json, sys, datetime, os
-
-          raw = os.environ['API_RESPONSE']
-
+          # ── Parse and transform ───────────────────────────────────────
           try:
               data = json.loads(raw)
           except json.JSONDecodeError as e:
               print(f"JSON parse error: {e}", file=sys.stderr)
               sys.exit(1)
 
-          patents_raw = data.get('patents', [])
-          if patents_raw is None:
-              patents_raw = []
+          patents_raw = data.get('patents') or []
 
-          patents = []
-          for p in patents_raw:
-              patents.append({
+          patents = [
+              {
                   "number": p.get("patent_number", ""),
                   "title":  p.get("patent_title", ""),
                   "date":   p.get("patent_date", "")
-              })
+              }
+              for p in patents_raw
+          ]
 
           output = {
               "last_updated": datetime.date.today().isoformat(),
-              "query_note": "inventor: Nathan Sargent, cities: Oceanside, San Marcos, Vista (CA)",
               "patents": patents
           }
 
