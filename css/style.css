@@ -333,7 +333,7 @@ a:hover { text-decoration: underline; }
 .patent-item {
   display: grid;
   grid-template-columns: auto 1fr auto;
-  align-items: center;
+  align-items: baseline;
   gap: 1rem;
   padding: 1.1rem 1.25rem;
   background: var(--bg-card);
@@ -362,8 +362,6 @@ a:hover { text-decoration: underline; }
   font-size: 1rem;
   font-weight: 700;
   color: var(--accent);
-  font-family: 'Courier New', monospace;
-  letter-spacing: 0.03em;
   white-space: nowrap;
 }
 
