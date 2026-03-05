@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 # ──────────────────────────────────────────────────────────────
-# SETUP: Before this workflow will run, add these four secrets
-# in your repo under Settings → Secrets and variables → Actions:
+# SETUP: Add these three secrets in your repo under
+# Settings → Secrets and variables → Actions:
 #
 #   INVENTOR_FIRST   Your first name as it appears on patents
 #                    Example: tony
@@ -20,11 +20,12 @@ on:
 #   INVENTOR_CITIES  Comma-separated list of cities on your patents
 #                    Example: malibu,kunar,new york city
 #
-#   LENS_API_TOKEN   Free API token from Lens.org
-#                    Register at: https://www.lens.org/lens/user/subscriptions
+# DATA SOURCE: USPTO Patent Public Search (ppubs.uspto.gov)
+# No API key required — uses the same backend as the USPTO website.
 #
-# NOTE: When PatentsView (patentsview.org) resumes issuing API keys,
-# this workflow can be switched back to use their API instead.
+# FUTURE: When PatentsView (patentsview.org) or EPO OPS resume
+# issuing free API keys, this workflow can be switched to use
+# those more stable APIs instead.
 # ──────────────────────────────────────────────────────────────
 
 jobs:
@@ -37,12 +38,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Fetch patents from Lens.org API
+      - name: Fetch patents from USPTO Patent Public Search
         env:
           INVENTOR_FIRST:  ${{ secrets.INVENTOR_FIRST }}
           INVENTOR_LAST:   ${{ secrets.INVENTOR_LAST }}
           INVENTOR_CITIES: ${{ secrets.INVENTOR_CITIES }}
-          LENS_API_TOKEN:  ${{ secrets.LENS_API_TOKEN }}
         run: |
           python3 - <<'PYEOF'
           import json, sys, datetime, os, urllib.request, urllib.error
@@ -51,85 +51,81 @@ jobs:
           first  = os.environ.get('INVENTOR_FIRST', '').strip().lower()
           last   = os.environ.get('INVENTOR_LAST', '').strip().lower()
           cities = [c.strip().lower() for c in os.environ.get('INVENTOR_CITIES', '').split(',') if c.strip()]
-          token  = os.environ.get('LENS_API_TOKEN', '').strip()
 
           if not first or not last or not cities:
               print("ERROR: INVENTOR_FIRST, INVENTOR_LAST, and INVENTOR_CITIES secrets must all be set.", file=sys.stderr)
               sys.exit(1)
-          if not token:
-              print("ERROR: LENS_API_TOKEN secret must be set. Register at https://www.lens.org/lens/user/subscriptions", file=sys.stderr)
-              sys.exit(1)
 
-          print(f"Querying for inventor '{first} {last}' in cities: {cities}")
+          # ── Build PPUBS query string ──────────────────────────────────
+          # Field codes: .INL. = inventor last name
+          #              .INF. = inventor first name
+          #              .IC.  = inventor city
+          # Multi-word city names must be quoted.
+          city_parts = [f'"{c}"' if ' ' in c else c for c in cities]
+          city_query = ' OR '.join(city_parts)
+          query_str  = f'({last}).INL. AND ({first}).INF. AND (({city_query}).IC.)'
 
-          # ── Build Lens.org API query ──────────────────────────────────
-          # Uses Elasticsearch bool query syntax:
-          #   must  = AND  (all conditions required)
-          #   should + minimum_should_match = OR  (at least one city required)
-          city_clauses = [{"match": {"inventor.address": city}} for city in cities]
+          print(f"Query: {query_str}")
 
-          query = {
-              "query": {
-                  "bool": {
-                      "must": [
-                          {"match": {"inventor.name": last}},
-                          {"match": {"inventor.name": first}},
-                          {"term":  {"jurisdiction": "US"}},
-                          {
-                              "bool": {
-                                  "should": city_clauses,
-                                  "minimum_should_match": 1
-                              }
-                          }
-                      ]
-                  }
-              },
-              "include": ["doc_number", "title", "date_published", "legal_status"],
-              "size": 500,
-              "from": 0,
-              "sort": [{"date_published": "desc"}]
+          BASE    = "https://ppubs.uspto.gov/dirsearch-public"
+          HEADERS = {
+              "Content-Type": "application/json",
+              "User-Agent": "Mozilla/5.0 (compatible; patent-widget/1.0)"
           }
 
-          payload = json.dumps(query).encode()
+          def post(url, body):
+              req = urllib.request.Request(url, data=body, headers=HEADERS, method="POST")
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as resp:
+                      return json.loads(resp.read().decode())
+              except urllib.error.HTTPError as e:
+                  print(f"HTTP {e.code} error at {url}: {e.read().decode()}", file=sys.stderr)
+                  sys.exit(1)
+              except urllib.error.URLError as e:
+                  print(f"Network error at {url}: {e.reason}", file=sys.stderr)
+                  sys.exit(1)
 
-          # ── Call the API ──────────────────────────────────────────────
-          req = urllib.request.Request(
-              "https://api.lens.org/patent/search",
-              data=payload,
-              headers={
-                  "Content-Type": "application/json",
-                  "Authorization": f"Bearer {token}"
-              },
-              method="POST"
-          )
+          # ── Step 1: Obtain a session caseId ──────────────────────────
+          # PPUBS requires a caseId for searches; this endpoint issues one.
+          session = post(f"{BASE}/users/me/session", b'"-1"')
+          case_id = session['userCase']['caseId']
+          print(f"Session caseId: {case_id}")
 
-          try:
-              with urllib.request.urlopen(req, timeout=30) as resp:
-                  raw = resp.read().decode()
-          except urllib.error.HTTPError as e:
-              print(f"HTTP error {e.code}: {e.read().decode()}", file=sys.stderr)
-              sys.exit(1)
-          except urllib.error.URLError as e:
-              print(f"Network error: {e.reason}", file=sys.stderr)
-              sys.exit(1)
+          # ── Step 2: Search granted US patents ─────────────────────────
+          search_body = json.dumps({
+              "pageCount": 500,
+              "sort": "date_publ desc",
+              "docFamilyFiltering": "familyIdFiltering",
+              "showDocPerFamilyPref": "showEnglish",
+              "query": {
+                  "caseId": case_id,
+                  "hl_snippets": "2",
+                  "op": "OR",
+                  "q": query_str,
+                  "queryName": query_str,
+                  "highlights": "1",
+                  "viewName": "tile",
+                  "databaseFilters": [
+                      {"databaseName": "USPAT", "countryCodes": []}
+                  ],
+                  "userEnteredQuery": query_str
+              }
+          }).encode()
 
-          print(f"API response preview: {raw[:300]}")
+          result = post(f"{BASE}/searches/searchWithBeFamily", search_body)
 
-          # ── Parse and transform ───────────────────────────────────────
-          try:
-              data = json.loads(raw)
-          except json.JSONDecodeError as e:
-              print(f"JSON parse error: {e}", file=sys.stderr)
-              sys.exit(1)
+          total = result.get('totalResults') or result.get('numFound', 0)
+          print(f"Total patents found: {total}")
+          if total > 500:
+              print(f"WARNING: {total} results found but only 500 retrieved. Consider adding pagination.")
 
-          patents_raw = data.get('data') or []
+          patents_raw = result.get('patents') or []
 
           patents = [
               {
-                  "number": p.get("doc_number", ""),
-                  "title":  p.get("title", ""),
-                  # Prefer grant date; fall back to publication date
-                  "date":   (p.get("legal_status") or {}).get("grant_date") or p.get("date_published", "")
+                  "number": p.get("publicationReferenceDocumentNumber", ""),
+                  "title":  p.get("inventionTitle", ""),
+                  "date":   p.get("datePublished", "")
               }
               for p in patents_raw
           ]
