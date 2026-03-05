@@ -125,7 +125,22 @@ a:hover { text-decoration: underline; }
   color: inherit;
 }
 
+/* Blueprint grid background */
 .widget::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(59,130,246,0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(59,130,246,0.06) 1px, transparent 1px);
+  background-size: 18px 18px;
+  border-radius: var(--radius);
+  pointer-events: none;
+  transition: opacity var(--transition);
+}
+
+/* Hover glow overlay */
+.widget::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -143,17 +158,67 @@ a:hover { text-decoration: underline; }
   text-decoration: none;
 }
 
-.widget:hover::before { opacity: 1; }
+.widget:hover::before { opacity: 2; }
+.widget:hover::after  { opacity: 1; }
 
 .widget:active { transform: translateY(-1px); }
 
 .widget-icon {
-  font-size: 2rem;
   line-height: 1;
-  filter: grayscale(0.3);
   transition: transform var(--transition);
+  position: relative;
+  z-index: 1;
 }
-.widget:hover .widget-icon { transform: rotate(20deg) scale(1.1); }
+.widget:hover .widget-icon { transform: translateY(-4px) scale(1.06); }
+
+/* ── Rocket SVG ──────────────────────────────────────────── */
+.widget-rocket {
+  width: 3.2rem;
+  height: auto;
+  overflow: visible;
+  filter: drop-shadow(0 0 4px rgba(59,130,246,0.3));
+  transition: filter var(--transition);
+}
+.widget:hover .widget-rocket {
+  filter: drop-shadow(0 0 10px rgba(59,130,246,0.7));
+}
+
+/* Shared stroke style for all rocket paths */
+.rk {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  animation: rocketDraw 1.5s ease forwards;
+  stroke-dashoffset: 400;
+  stroke-dasharray: 400;
+}
+
+/* Per-element tuning — dasharray ≈ path length */
+.rk-body   { stroke-dasharray: 220; stroke-dashoffset: 220; animation-delay: 0.1s; }
+.rk-fin-l  { stroke-dasharray: 52;  stroke-dashoffset: 52;  animation-delay: 0.6s; }
+.rk-fin-r  { stroke-dasharray: 52;  stroke-dashoffset: 52;  animation-delay: 0.75s; }
+.rk-port   { stroke-dasharray: 57;  stroke-dashoffset: 57;  animation-delay: 1.0s; }
+.rk-ch     { stroke-dasharray: 18;  stroke-dashoffset: 18;  animation-delay: 1.25s; }
+.rk-cv     { stroke-dasharray: 18;  stroke-dashoffset: 18;  animation-delay: 1.4s; }
+.rk-nozzle { stroke-dasharray: 46;  stroke-dashoffset: 46;  animation-delay: 1.55s; }
+
+.rk-glow {
+  fill: var(--accent);
+  opacity: 0;
+  transform-origin: 50% 73px;
+  animation: enginePulse 1.8s ease-in-out 1.85s infinite;
+}
+
+@keyframes rocketDraw {
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes enginePulse {
+  0%, 100% { opacity: 0.15; transform: scaleX(0.7) scaleY(0.6); filter: blur(1px); }
+  50%       { opacity: 0.85; transform: scaleX(1.3) scaleY(1.1); filter: blur(3px); }
+}
 
 .widget-count {
   font-size: 3rem;
@@ -241,13 +306,14 @@ a:hover { text-decoration: underline; }
 
 .patent-item {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto 1fr;
   align-items: center;
   gap: 1rem;
   padding: 1.1rem 1.25rem;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 10px;
+  cursor: pointer;
   transition:
     transform var(--transition),
     border-color var(--transition),
@@ -261,43 +327,36 @@ a:hover { text-decoration: underline; }
   background: var(--bg-card-hover);
 }
 
+.patent-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Number + date grouped in left column */
+.patent-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+  white-space: nowrap;
+}
+
 .patent-number {
-  font-size: 0.75rem;
+  font-size: 1rem;
   font-weight: 700;
   color: var(--accent);
   font-family: 'Courier New', monospace;
-  letter-spacing: 0.05em;
-  white-space: nowrap;
+  letter-spacing: 0.03em;
+}
+
+.patent-date {
+  font-size: 0.72rem;
+  color: var(--text-muted);
 }
 
 .patent-title {
   font-size: 0.9rem;
   color: var(--text);
   line-height: 1.4;
-}
-
-.patent-date {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-.patent-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-size: 0.75rem;
-  color: var(--accent);
-  padding: 0.3rem 0.6rem;
-  border: 1px solid var(--accent);
-  border-radius: 6px;
-  transition: background var(--transition), color var(--transition);
-  white-space: nowrap;
-}
-.patent-link:hover {
-  background: var(--accent);
-  color: #fff;
-  text-decoration: none;
 }
 
 .patent-placeholder {
@@ -365,13 +424,7 @@ a:hover { text-decoration: underline; }
 /* ============================================================
    Responsive
    ============================================================ */
-@media (max-width: 600px) {
-  .patent-item {
-    grid-template-columns: 1fr auto;
-    grid-template-rows: auto auto;
-  }
-  .patent-number { grid-column: 1; }
-  .patent-date   { grid-column: 2; grid-row: 1; }
-  .patent-title  { grid-column: 1 / -1; }
-  .patent-link   { grid-column: 1 / -1; justify-self: start; }
+@media (max-width: 520px) {
+  .patent-item { grid-template-columns: 1fr; }
+  .patent-meta { flex-wrap: wrap; }
 }
