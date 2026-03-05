@@ -45,11 +45,11 @@ function animateCount(el, target, duration = 1200) {
 // ── Format date string ───────────────────────────────────────
 function formatDate(isoStr) {
   if (!isoStr) return '';
-  // USPTO returns YYYYMMDD (e.g. "20231205") — convert to ISO before parsing
-  let s = /^\d{8}$/.test(isoStr)
-    ? `${isoStr.slice(0,4)}-${isoStr.slice(4,6)}-${isoStr.slice(6)}`
-    : isoStr;
-  const d = new Date(s + 'T00:00:00'); // avoid timezone shifts
+  let s = isoStr;
+  // Handle YYYYMMDD (e.g. "20231205")
+  if (/^\d{8}$/.test(s)) s = `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6)}`;
+  // If already has a time component (T or space), parse as-is; otherwise append to avoid UTC shift
+  const d = /[T ]/.test(s) ? new Date(s) : new Date(s + 'T00:00:00');
   if (isNaN(d.getTime())) return '';
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
@@ -129,11 +129,9 @@ function renderList(patents) {
           tabindex="0"
           role="link"
           aria-label="US ${p.number} — ${escapeHtml(p.title)}">
-        <div class="patent-meta">
-          <span class="patent-number">US ${p.number}</span>
-          ${date ? `<span class="patent-date">${date}</span>` : ''}
-        </div>
+        <span class="patent-number">US ${p.number}</span>
         <span class="patent-title">${escapeHtml(p.title)}</span>
+        <span class="patent-date">${date}</span>
       </li>`;
   }).join('');
 }

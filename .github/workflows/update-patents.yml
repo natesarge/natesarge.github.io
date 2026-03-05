@@ -159,11 +159,20 @@ jobs:
 
           patents_raw = result.get('patents') or []
 
+          def normalize_date(raw):
+              """Convert any USPTO date format to YYYY-MM-DD."""
+              s = str(raw or "").strip()
+              if len(s) == 8 and s.isdigit():          # YYYYMMDD
+                  return f"{s[:4]}-{s[4:6]}-{s[6:]}"
+              if "T" in s:                              # ISO datetime
+                  return s.split("T")[0]
+              return s
+
           patents = [
               {
                   "number": p.get("publicationReferenceDocumentNumber", ""),
                   "title":  p.get("inventionTitle", ""),
-                  "date":   p.get("datePublished", "")
+                  "date":   normalize_date(p.get("datePublished", ""))
               }
               for p in patents_raw
           ]

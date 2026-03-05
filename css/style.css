@@ -108,6 +108,7 @@ a:hover { text-decoration: underline; }
   justify-content: center;
   gap: 0.4rem;
   padding: 2rem 1.5rem;
+  min-height: 230px;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -163,24 +164,40 @@ a:hover { text-decoration: underline; }
 
 .widget:active { transform: translateY(-1px); }
 
+/* Rocket fills the card as a background layer */
 .widget-icon {
-  line-height: 1;
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
   transition: transform var(--transition);
-  position: relative;
-  z-index: 1;
+  z-index: 0;
 }
-.widget:hover .widget-icon { transform: translateY(-4px) scale(1.06); }
+.widget:hover .widget-icon { transform: translateY(-10px); }
 
 /* ── Rocket SVG ──────────────────────────────────────────── */
 .widget-rocket {
-  width: 3.2rem;
-  height: auto;
+  width: 78%;
+  height: 86%;
+  opacity: 0.18;
   overflow: visible;
-  filter: drop-shadow(0 0 4px rgba(59,130,246,0.3));
-  transition: filter var(--transition);
+  filter: drop-shadow(0 0 8px rgba(59,130,246,0.5));
+  transition: filter var(--transition), opacity var(--transition);
 }
 .widget:hover .widget-rocket {
-  filter: drop-shadow(0 0 10px rgba(59,130,246,0.7));
+  opacity: 0.3;
+  filter: drop-shadow(0 0 18px rgba(59,130,246,0.9));
+}
+
+/* Text content floats above the rocket */
+.widget-count,
+.widget-label,
+.widget-sub,
+.widget-cta {
+  position: relative;
+  z-index: 1;
 }
 
 /* Shared stroke style for all rocket paths */
@@ -306,7 +323,7 @@ a:hover { text-decoration: underline; }
 
 .patent-item {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 1rem;
   padding: 1.1rem 1.25rem;
@@ -332,31 +349,26 @@ a:hover { text-decoration: underline; }
   outline-offset: 2px;
 }
 
-/* Number + date grouped in left column */
-.patent-meta {
-  display: flex;
-  align-items: baseline;
-  gap: 0.65rem;
-  white-space: nowrap;
-}
-
 .patent-number {
   font-size: 1rem;
   font-weight: 700;
   color: var(--accent);
   font-family: 'Courier New', monospace;
   letter-spacing: 0.03em;
-}
-
-.patent-date {
-  font-size: 0.72rem;
-  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .patent-title {
   font-size: 0.9rem;
   color: var(--text);
   line-height: 1.4;
+}
+
+/* Right column — all dates share the same column width so they align */
+.patent-date {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .patent-placeholder {
@@ -425,6 +437,11 @@ a:hover { text-decoration: underline; }
    Responsive
    ============================================================ */
 @media (max-width: 520px) {
-  .patent-item { grid-template-columns: 1fr; }
-  .patent-meta { flex-wrap: wrap; }
+  .patent-item {
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+  }
+  .patent-number { grid-column: 1; grid-row: 1; }
+  .patent-date   { grid-column: 2; grid-row: 1; }
+  .patent-title  { grid-column: 1 / -1; grid-row: 2; }
 }
