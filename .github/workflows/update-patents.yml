@@ -22,10 +22,6 @@ on:
 #
 # DATA SOURCE: USPTO Patent Public Search (ppubs.uspto.gov)
 # No API key required — uses the same backend as the USPTO website.
-#
-# FUTURE: When PatentsView (patentsview.org) or EPO OPS resume
-# issuing free API keys, this workflow can be switched to use
-# those more stable APIs instead.
 # ──────────────────────────────────────────────────────────────
 
 jobs:
@@ -45,7 +41,7 @@ jobs:
           INVENTOR_CITIES: ${{ secrets.INVENTOR_CITIES }}
         run: |
           python3 - <<'PYEOF'
-          import json, sys, datetime, os, urllib.request, urllib.error
+          import json, sys, datetime, os, urllib.request, urllib.error, http.cookiejar
 
           # ── Read secrets from environment ────────────────────────────
           first  = os.environ.get('INVENTOR_FIRST', '').strip().lower()
@@ -67,35 +63,61 @@ jobs:
 
           print(f"Query: {query_str}")
 
-          BASE    = "https://ppubs.uspto.gov/dirsearch-public"
-          HEADERS = {
-              "Content-Type": "application/json",
-              "User-Agent": "Mozilla/5.0 (compatible; patent-widget/1.0)"
-          }
+          BASE = "https://ppubs.uspto.gov"
 
-          def post(url, body):
-              req = urllib.request.Request(url, data=body, headers=HEADERS, method="POST")
+          # Use a cookie jar so the session cookie is retained across requests
+          cookie_jar = http.cookiejar.CookieJar()
+          opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(cookie_jar))
+
+          def request(method, url, body=None, extra_headers=None):
+              headers = {
+                  "Content-Type": "application/json",
+                  "User-Agent": "Mozilla/5.0 (compatible; patent-widget/1.0)",
+              }
+              if extra_headers:
+                  headers.update(extra_headers)
+              req = urllib.request.Request(url, data=body, headers=headers, method=method)
               try:
-                  with urllib.request.urlopen(req, timeout=30) as resp:
-                      return json.loads(resp.read().decode())
+                  with opener.open(req, timeout=30) as resp:
+                      body_bytes = resp.read().decode()
+                      resp_headers = dict(resp.headers)
+                      return body_bytes, resp_headers
               except urllib.error.HTTPError as e:
-                  print(f"HTTP {e.code} error at {url}: {e.read().decode()}", file=sys.stderr)
+                  print(f"HTTP {e.code} error at {url}:\n{e.read().decode()}", file=sys.stderr)
                   sys.exit(1)
               except urllib.error.URLError as e:
                   print(f"Network error at {url}: {e.reason}", file=sys.stderr)
                   sys.exit(1)
 
-          # ── Step 1: Obtain a session caseId ──────────────────────────
-          # PPUBS requires a caseId for searches; this endpoint issues one.
-          session = post(f"{BASE}/users/me/session", b'"-1"')
-          case_id = session['userCase']['caseId']
-          print(f"Session caseId: {case_id}")
+          # ── Step 1: Load the app page (sets initial cookies) ─────────
+          print("Loading PPUBS app page...")
+          request("GET", f"{BASE}/pubwebapp/")
 
-          # ── Step 2: Search granted US patents ─────────────────────────
-          search_body = json.dumps({
+          # ── Step 2: Obtain a session caseId + access token ───────────
+          # The session endpoint returns caseId in JSON and X-Access-Token in headers.
+          print("Requesting session...")
+          session_body, session_headers = request(
+              "POST",
+              f"{BASE}/api/users/me/session",
+              body=b'"-1"',
+              extra_headers={"X-Access-Token": "null"}
+          )
+          print(f"Session response: {session_body[:200]}")
+          session = json.loads(session_body)
+          case_id = session['userCase']['caseId']
+          access_token = session_headers.get('X-Access-Token') or session_headers.get('x-access-token', '')
+          print(f"Session caseId: {case_id}  access_token: {'<present>' if access_token else '<absent>'}")
+
+          # ── Step 3: Search granted US patents ─────────────────────────
+          search_payload = {
+              "start": 0,
               "pageCount": 500,
               "sort": "date_publ desc",
               "docFamilyFiltering": "familyIdFiltering",
+              "familyIdEnglishOnly": True,
+              "familyIdFirstPreferred": "US-PGPUB",
+              "familyIdSecondPreferred": "USPAT",
+              "familyIdThirdPreferred": "FPRS",
               "showDocPerFamilyPref": "showEnglish",
               "query": {
                   "caseId": case_id,
@@ -104,20 +126,35 @@ jobs:
                   "q": query_str,
                   "queryName": query_str,
                   "highlights": "1",
+                  "qt": "brs",
+                  "spellCheck": False,
                   "viewName": "tile",
+                  "plurals": True,
+                  "britishEquivalents": True,
                   "databaseFilters": [
                       {"databaseName": "USPAT", "countryCodes": []}
                   ],
+                  "searchType": 1,
+                  "ignorePersist": True,
                   "userEnteredQuery": query_str
               }
-          }).encode()
+          }
 
-          result = post(f"{BASE}/searches/searchWithBeFamily", search_body)
+          search_extra = {"X-Access-Token": access_token} if access_token else {}
+          raw, _ = request(
+              "POST",
+              f"{BASE}/api/searches/searchWithBeFamily",
+              body=json.dumps(search_payload).encode(),
+              extra_headers=search_extra
+          )
+          print(f"Search response preview: {raw[:300]}")
+
+          result = json.loads(raw)
 
           total = result.get('totalResults') or result.get('numFound', 0)
           print(f"Total patents found: {total}")
           if total > 500:
-              print(f"WARNING: {total} results found but only 500 retrieved. Consider adding pagination.")
+              print(f"WARNING: {total} results found but only 500 retrieved.")
 
           patents_raw = result.get('patents') or []
 
