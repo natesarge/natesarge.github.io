@@ -175,12 +175,12 @@ a:hover { text-decoration: underline; }
   transition: transform var(--transition);
   z-index: 0;
 }
-.widget:hover .widget-icon { transform: translateY(-10px); }
+.widget:hover .widget-icon { transform: translateY(-5px); }
 
 /* ── Rocket SVG ──────────────────────────────────────────── */
 .widget-rocket {
-  width: 78%;
-  height: 86%;
+  width: auto;
+  height: 95%;
   opacity: 0.18;
   overflow: visible;
   filter: drop-shadow(0 0 8px rgba(59,130,246,0.5));
@@ -194,9 +194,18 @@ a:hover { text-decoration: underline; }
 /* Text content floats above the rocket */
 .widget-count,
 .widget-label,
-.widget-sub,
 .widget-cta {
   position: relative;
+  z-index: 1;
+}
+
+/* "Updated on…" sits quietly at the bottom of the card */
+.widget-sub {
+  position: absolute;
+  bottom: 0.6rem;
+  left: 0;
+  right: 0;
+  text-align: center;
   z-index: 1;
 }
 
