@@ -53,13 +53,14 @@ jobs:
               sys.exit(1)
 
           # ── Build PPUBS query string ──────────────────────────────────
-          # Field codes: .IN. = inventor name (first+last combined; no separate INL/INF)
-          #              .IC. = inventor city
+          # Field codes: .IN.   = inventor name (first+last combined)
+          #              .INCI. = inventor city
+          #              .INST. = inventor state
           # WITH = proximity operator requiring both terms in same field.
           # Multi-word city names must be quoted.
           city_parts = [f'"{c}"' if ' ' in c else c for c in cities]
           city_query = ' OR '.join(city_parts)
-          query_str  = f'({last} WITH {first}).IN. AND (({city_query}).IC.)'
+          query_str  = f'({last} WITH {first}).IN. AND (({city_query}).INCI.)'
 
           print(f"Query: {query_str}")
 
